@@ -1,140 +1,24 @@
-# InfraPulse Database — Complete Beginner Setup Guide
+# InfraPulse — Database Setup Guide
 
-**Repository 1 of 3 | Start here**
+This repository contains the PostgreSQL schema and initialization scripts for the InfraPulse Infrastructure Monitoring platform. It stores server inventory, CPU, memory and disk utilization, historical measurements and resource alerts.
 
-PostgreSQL is the database server; SQL is the language used to communicate with it. This repository contains SQL scripts rather than a standalone Python or Node.js application. Start PostgreSQL and execute the scripts using its command-line client, `psql`.
+There are two ways to deploy the database:
 
-## Project overview and execution order
+- **IaaS (Infrastructure as a Service):** Install and manage PostgreSQL on an Ubuntu virtual machine.
+- **PaaS (Platform as a Service):** Use Azure Database for PostgreSQL — Flexible Server. Azure manages the database infrastructure and backups.
 
-InfraPulse is a three-tier infrastructure monitoring application. The collector sends CPU, memory (RAM), and disk usage measurements to the FastAPI backend. PostgreSQL stores those measurements and the React dashboard displays them.
+For the two-VM InfraPulse deployment (backend VM and dashboard VM), choose **Option 2**. You do not need to complete both options.
 
-```text
-Collector --> FastAPI --> PostgreSQL
-Browser --> React/Vite --> FastAPI --> PostgreSQL
-```
+> This project uses PostgreSQL, not Microsoft SQL Server or Azure SQL Database. No Docker or container tooling is required.
 
-| Order | Component | Port | Purpose |
-|---|---|---|---|
-| 1 | infrapulse-database | 5432 | Persistent data storage |
-| 2 | infrapulse-query-service | 8000 | REST API |
-| 3 | infrapulse-query-service agent | None | Sends measurements |
-| 4 | infrapulse-dashboard | 5173 | Browser interface |
-
-Use Ubuntu 24.04 or Ubuntu under WSL for the Bash commands in this guide. Native Windows alternatives are included where needed. Install all components in the same environment; do not mix native Windows and WSL installations. `localhost` refers to your own machine, and a port is a numbered network connection point. Run commands one at a time, checking the output before proceeding. Do not copy the terminal prompt or expected output.
-
-## Prepare your project folder
-
-```bash
-mkdir -p ~/InfraPulse
-cd ~/InfraPulse
-pwd
-ls -a
-```
-
-`mkdir -p` creates a directory if needed; `cd` changes directories; `pwd` prints the current location; `ls -a` lists files including hidden files. Extract the three source archives here, or clone your three populated GitHub repositories here. The final layout must be:
-
-```text
-InfraPulse/
-  infrapulse-database/
-  infrapulse-query-service/
-  infrapulse-dashboard/
-```
-
-Avoid double-nested directories. On native Windows, use `$HOME\InfraPulse` in PowerShell and Extract All in File Explorer. In WSL, `explorer.exe .` opens the current Linux directory in Windows Explorer.
-
-## 1. Install PostgreSQL (Terminal 1)
-
-```bash
-sudo apt update
-sudo apt install -y postgresql postgresql-client
-psql --version
-sudo service postgresql start
-sudo service postgresql status
-pg_isready -h localhost -p 5432
-```
-
-`sudo` runs a command with administrator permissions. Password characters are hidden while typing. `apt update` refreshes package lists; `apt install` installs software; `-y` accepts confirmation. `psql` is the SQL client. `service` starts or checks PostgreSQL. If a status pager opens, press `q`. Expect `accepting connections` from `pg_isready`.
-
-**Native Windows:** Install PostgreSQL 14 or later from https://www.postgresql.org/download/windows/. Include the server and command-line tools, remember the administrator password, and keep port 5432. Open SQL Shell (psql), select localhost, database postgres, port 5432, username postgres and enter the administrator password. If PowerShell cannot find psql, add the installation's `bin` directory to PATH and open a new terminal. Check the PostgreSQL service in the Windows Services application.
-
-## 2. Create the application role and database (once only)
-
-```bash
-sudo -u postgres psql
-```
-
-The `postgres=#` prompt means you are inside the SQL shell, not Bash. Enter these SQL statements separately, including their semicolons:
-
-```sql
-CREATE ROLE infrapulse LOGIN PASSWORD 'local-dev-password-change-me';
-CREATE DATABASE infrapulse OWNER infrapulse;
-```
-
-Expected messages: `CREATE ROLE` and `CREATE DATABASE`. The role is the application's login; `OWNER` grants ownership of the new database. Use the same password in the backend `.env` file. The example password is for local practice only. Windows SQL Shell accepts the same statements.
-
-```sql
-\du
-\l
-\q
-```
-
-These commands list roles, list databases and exit the SQL shell, respectively. If the role or database already exists, inspect it rather than deleting it. To reset the lab role password if necessary, run `ALTER ROLE infrapulse PASSWORD 'local-dev-password-change-me';` in the administrator SQL shell.
-
-## 3. Execute the database schema
-
-```bash
-cd ~/InfraPulse/infrapulse-database
-ls -a
-psql -h localhost -p 5432 -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -1 -f init/01-schema.sql
-```
-
-Enter the application role password, not the postgres administrator password. On Windows PowerShell, use `cd "$HOME\InfraPulse\infrapulse-database"` first; the psql command is unchanged.
-
-| Option | Meaning |
-|---|---|
-| -h | Database host |
-| -p | Port |
-| -U | Login role |
-| -d | Database name |
-| -v ON_ERROR_STOP=1 | Stop when an SQL error occurs |
-| -1 | Execute the script in a single transaction |
-| -f | Read the specified SQL file |
-
-Expect CREATE TABLE and CREATE INDEX messages. Execute the schema only once for a new database.
-
-## 4. Insert sample data
-
-```bash
-psql -h localhost -p 5432 -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -f demo/seed.sql
-```
-
-The seed script manages its own transaction and inserts three simulated servers, 48 historical measurements per server (144 measurements on a fresh database), and a disk alert. Re-running it can add duplicate historical measurements. These server names and region labels are simulated, not actual cloud resources. After 120 seconds without a new measurement, servers may appear offline; the demo collector will keep them updated later.
-
-## 5. Verify the database
-
-```bash
-psql -h localhost -p 5432 -U infrapulse -d infrapulse
-```
-
-At the `infrapulse=>` SQL prompt, run:
-
-```sql
-\dt
-SELECT id, hostname, region FROM servers ORDER BY id;
-SELECT count(*) FROM metrics;
-SELECT * FROM alerts;
-SELECT hostname, cpu, memory, disk, collected_at FROM servers JOIN metrics ON servers.id = metrics.server_id ORDER BY collected_at DESC LIMIT 5;
-\q
-```
-
-`\dt` lists tables; SELECT reads data; count(*) counts rows; JOIN connects server records to measurements; ORDER BY DESC sorts newest first; LIMIT restricts the result. Expect three tables, three demo servers (demo-web-01, demo-api-01, demo-db-01), 144 measurements on a fresh seed, and a disk alert for demo-db-01. Press `q` to leave a result pager if needed.
-
-## 6. Repository structure and database design
+## Repository structure
 
 ```text
 infrapulse-database/
-├── init/01-schema.sql
-├── demo/seed.sql
+├── init/
+│   └── 01-schema.sql
+├── demo/
+│   └── seed.sql
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -142,98 +26,507 @@ infrapulse-database/
 
 | File | Purpose |
 |---|---|
-| init/01-schema.sql | Creates tables, constraints and indexes |
-| demo/seed.sql | Inserts demonstration servers, measurements and an alert |
-| .gitignore | Excludes local files from Git |
-| LICENSE | License terms |
-| README.md | Setup and usage instructions |
+| `init/01-schema.sql` | Creates the servers, metrics and alerts tables, constraints and indexes. |
+| `demo/seed.sql` | Inserts three demonstration servers, historical measurements and an example disk alert. |
+| `.gitignore` | Excludes local or sensitive files from Git. |
+| `LICENSE` | Project license. |
+| `README.md` | Database setup and deployment instructions. |
 
-| Table | Purpose | Key fields |
-|---|---|---|
-| servers | Server inventory | id, hostname, region, created_at |
-| metrics | Historical measurements | server_id, collected_at, cpu, memory, disk |
-| alerts | Resource threshold events | server_id, metric, value, opened_at, resolved_at |
+No additional PostgreSQL extension is required by the current schema.
 
-Primary keys uniquely identify rows. Foreign keys connect metrics and alerts to the server record. CHECK constraints restrict utilization to 0–100. The server/time index accelerates recent measurement queries. A partial unique index permits only one unresolved alert per server and resource. A null resolved_at means the alert is active. Deleting a server also deletes its associated measurements and alerts through cascading foreign keys; avoid accidental deletes.
+## Deployment architecture
 
-## 7. Troubleshooting
+```text
+Browser --> Frontend VM (Nginx, React)
+                 |
+                 | HTTP :8000 (private network)
+                 v
+            Backend VM (FastAPI)
+                 |
+                 | PostgreSQL :5432
+                 v
+            PostgreSQL (VM or Azure Flexible Server)
+```
 
-| Error | Action |
+Deploy the database first, then `infrapulse-query-service`, and finally `infrapulse-dashboard`. The dashboard does not connect directly to PostgreSQL.
+
+## Prerequisites
+
+- An Azure subscription and access to the Azure Portal.
+- A backend Ubuntu VM with outbound internet access to install packages and clone your repository.
+- Your own GitHub repository URL; replace `YOUR_USERNAME` in the commands.
+- An SSH key for VM access.
+- Optional: [pgAdmin 4](https://www.pgadmin.org/download/) on your workstation.
+
+All shell commands below use Bash on Ubuntu. SQL commands are explicitly marked. Replace example hostnames and IP addresses with your actual values. Never commit passwords or real `.env` files.
+
+---
+
+## Option 1: IaaS Setup (PostgreSQL on a Linux VM)
+
+### Step 1: Create the database VM and configure network security
+
+Create an Ubuntu Server 24.04 LTS VM in the Azure Portal. Use the same virtual network as the backend VM, with a separate database subnet if desired.
+
+| Setting | Example |
 |---|---|
-| psql command not found | Install the PostgreSQL client or check PATH |
-| Connection refused | Start PostgreSQL and run pg_isready |
-| Password authentication failed | Verify the application role and password |
-| Database does not exist | Verify Step 2 |
-| No such file | Check pwd and ls -a |
-| Relation already exists | Schema may already be initialized; verify Step 5 |
+| Resource group | `rg-infrapulse` |
+| VM name | `vm-infrapulse-database` |
+| Private IP | `10.0.3.4` |
+| Backend private IP | `10.0.2.4` |
+| Authentication | SSH public key |
+| Public IP | Optional for restricted SSH access |
 
-## 8. Optional backup
+In VM > Networking > Network settings, add inbound NSG rules:
+
+| Priority | Protocol | Destination port | Source | Action |
+|---|---|---|---|---|
+| 1000 | TCP | 22 | Your workstation public IP or authorized jump host | Allow |
+| 1010 | TCP | 5432 | Backend private IP `10.0.2.4/32` | Allow |
+| 4000 | Any | Any | Any | Deny |
+
+Do not expose port 5432 to the entire internet. Restrict any additional access to trusted clients. If using a private VM, provide an explicit outbound internet path for package installation and Git access.
+
+### Step 2: Connect and install PostgreSQL
+
+From your workstation, if the database VM has a public IP:
 
 ```bash
-pg_dump -h localhost -U infrapulse -d infrapulse -Fc -f infrapulse.dump
-pg_restore -l infrapulse.dump
+ssh azureuser@YOUR_DATABASE_VM_PUBLIC_IP
 ```
 
-The first command creates a custom-format backup; the second lists its contents. Restore into a separate empty database when practicing. Do not use destructive restore options against a working database. Never publish backups to GitHub.
-
-## 9. Next step
-
-Leave PostgreSQL running in the background and open `infrapulse-query-service/README.md`. Do not start the backend until the database checks succeed. After restarting your computer, start the PostgreSQL service again; database creation and seeding do not need to be repeated.
-
-## Publish this repository to GitHub using Git clone (optional)
-
-These instructions are for publishing the supplied source code to your own GitHub account, not for running the application. Publish each repository separately.
-
-1. Install Git (`sudo apt install -y git` on Ubuntu, or https://git-scm.com/downloads on Windows). Verify with `git --version`.
-2. Open https://github.com/new and create an empty repository named `infrapulse-database`. Do not initialize it with a README, license or .gitignore. Choose public or private visibility as appropriate.
-3. Configure your Git identity once, using your own name and email.
+For a private VM, use an authorized SSH jump host (with corresponding NSG rules):
 
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "your-email@example.com"
+ssh -J azureuser@YOUR_JUMP_HOST_PUBLIC_IP azureuser@10.0.3.4
 ```
 
-4. Clone into a separate publishing directory so that it does not conflict with your extracted source folder. Replace `YOUR_USERNAME` with your GitHub username.
+On the database VM:
 
 ```bash
-mkdir -p ~/InfraPulse-publish
-cd ~/InfraPulse-publish
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib git
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql --no-pager
+pg_isready
+```
+
+`apt update` refreshes package information. `apt install` installs the server and Git. `systemctl` starts PostgreSQL and enables it on reboot. `pg_isready` checks whether the database accepts connections.
+
+### Step 3: Configure PostgreSQL for private remote connections
+
+Find the actual configuration paths:
+
+```bash
+sudo -u postgres psql -Atc 'SHOW config_file;'
+sudo -u postgres psql -Atc 'SHOW hba_file;'
+```
+
+Ubuntu 24.04 normally installs PostgreSQL 16. Substitute the version/path reported by the previous commands if different.
+
+```bash
+sudo nano /etc/postgresql/16/main/postgresql.conf
+```
+
+Set the following line (use your database VM's actual private IP):
+
+```ini
+listen_addresses = 'localhost,10.0.3.4'
+```
+
+Edit the client authentication file:
+
+```bash
+sudo nano /etc/postgresql/16/main/pg_hba.conf
+```
+
+Add the following rule before any conflicting rule:
+
+```text
+hostssl infrapulse infrapulse 10.0.2.4/32 scram-sha-256
+```
+
+For this private lab, enable PostgreSQL TLS (`ssl = on` in `postgresql.conf`) and verify the configured server certificate and key exist and are readable by PostgreSQL. Ubuntu's packaged local certificate can be used for a lab with `sslmode=require`; for identity verification use a trusted certificate matching the database hostname and `verify-full`.
+
+Save with Ctrl+O, Enter, Ctrl+X. Restart and verify:
+
+```bash
+sudo systemctl restart postgresql
+sudo -u postgres psql -c 'SHOW ssl;'
+sudo ss -ltnp | grep 5432
+```
+
+If UFW is enabled, also allow TCP 5432 only from the backend private IP:
+
+```bash
+sudo ufw status
+sudo ufw allow from 10.0.2.4 to any port 5432 proto tcp
+```
+
+### Step 4: Create an application user and database
+
+```bash
+sudo -u postgres psql
+```
+
+Inside the PostgreSQL shell, run:
+
+```sql
+CREATE ROLE infrapulse LOGIN;
+```
+
+Set a strong password without placing it in shell history:
+
+```text
+\password infrapulse
+```
+
+Enter the password twice. Then run:
+
+```sql
+CREATE DATABASE infrapulse OWNER infrapulse;
+```
+
+Exit with `\q`. The application uses its own login instead of the database administrator.
+
+### Step 5: Clone and initialize the repository
+
+On the database VM:
+
+```bash
+cd ~
 git clone https://github.com/YOUR_USERNAME/infrapulse-database.git
 cd infrapulse-database
+ls -la
 ```
 
-An empty-repository warning is normal for a newly created repository. Copy the contents of the supplied source directory into this cloned directory, including hidden files such as `.gitignore` and `.env.example` where present. Do not replace the cloned `.git` directory. Do not copy actual secrets, database dumps, virtual environments, dependencies or build output.
-
-5. Check the files and the destination repository before staging and committing.
+Run the schema as the application user so it owns the tables:
 
 ```bash
-git remote -v
-git status
-git add .
-git status --short
+psql -h localhost -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -1 -f init/01-schema.sql
 ```
 
-`git clone` automatically configures the remote named `origin`; no `git init` or `git remote add` is necessary. `git add` stages files; `git status` lets you review them. Remove any staged secrets before committing.
+Enter the application password when prompted. `-f` executes a file; `-1` wraps the schema in a transaction; `ON_ERROR_STOP` stops on SQL errors.
+
+Optionally insert the demonstration data:
 
 ```bash
-git commit -m "Initial InfraPulse project"
-git branch -M main
-git push -u origin main
+psql -h localhost -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -f demo/seed.sql
 ```
 
-`git commit` records a snapshot, `git branch -M main` names the branch, and `git push` uploads the commit and sets the upstream branch. Authenticate using the browser/Git Credential Manager or a GitHub token, not your account password. Refresh the GitHub repository page and confirm the source files and README are present.
+Run the schema once on a new database. The seed script already contains its own transaction; repeating it adds more historical metrics.
 
-For an existing cloned repository, replace its README.md and run only:
+### Step 6: Connect via pgAdmin 4 (IaaS, optional)
+
+Use an SSH tunnel so PostgreSQL does not need a public inbound rule. From your workstation, while connected to a VM reachable by SSH:
+
+```bash
+ssh -N -L 15432:127.0.0.1:5432 azureuser@YOUR_DATABASE_VM_PUBLIC_IP
+```
+
+For a private database VM, add `-J azureuser@YOUR_JUMP_HOST_PUBLIC_IP` and use its private IP as the SSH destination. Keep this terminal open.
+
+Open pgAdmin 4 > Servers > Register > Server.
+
+| Field | Value |
+|---|---|
+| General > Name | InfraPulse-IaaS |
+| Host name/address | `127.0.0.1` |
+| Port | `15432` |
+| Maintenance database | `infrapulse` |
+| Username | `infrapulse` |
+| Password | Application password |
+| SSL mode | Require (lab TLS configuration) |
+
+Click Save. Expand Databases > infrapulse > Schemas > public > Tables. If you already executed both scripts using `psql`, do not execute them again. Otherwise open Query Tool and run the contents of `init/01-schema.sql` first and `demo/seed.sql` second.
+
+### Step 7: Test from the backend VM
+
+On the backend VM, install the client and test private connectivity:
+
+```bash
+sudo apt update
+sudo apt install -y postgresql-client
+PGSSLMODE=require psql -h 10.0.3.4 -p 5432 -U infrapulse -d infrapulse
+```
+
+Run `\dt` and `\q`. Continue to the verification and backend configuration sections below.
+
+---
+
+## Option 2: PaaS Setup (Azure Database for PostgreSQL — Flexible Server)
+
+This is the recommended option for InfraPulse when the backend and dashboard run on separate Azure VMs. You do not install PostgreSQL server software on either VM.
+
+### Step 1: Provision the managed database
+
+1. Sign in to the [Azure Portal](https://portal.azure.com/).
+2. Search for **Azure Database for PostgreSQL flexible servers**.
+3. Click **Create**.
+4. Configure the Basics tab using the following example settings.
+
+| Setting | Example value |
+|---|---|
+| Subscription | Your active subscription |
+| Resource group | `rg-infrapulse` |
+| Server name | `psql-infrapulse-unique` (choose a globally unique name) |
+| Region | Central India, or the backend VM region |
+| PostgreSQL version | 16 |
+| Workload type | Development, if offered |
+| Compute tier | Burstable |
+| Compute size | B1ms or equivalent available size |
+| Storage | 32 GiB or the available minimum |
+| High availability | Disabled for a practice environment |
+| Backup retention | 7 days |
+| Authentication | PostgreSQL authentication |
+| Admin username | `infraadmin` |
+| Admin password | A strong unique password |
+
+Availability and prices depend on region and subscription. Review the estimated cost before creating resources.
+
+### Step 2: Configure networking
+
+Choose **one** networking approach appropriate to your environment.
+
+#### A. Public access with restricted firewall rules (simple pgAdmin setup)
+
+In Networking, choose Public access (allowed IP addresses). Enable public access and add:
+
+- Your workstation's current public IP, if using pgAdmin directly.
+- The backend VM's actual outbound public IP (its public IP or NAT Gateway public IP, depending on routing).
+
+For each rule, use the same start and end IP for a single trusted address. Do not enable access from all Azure services or all internet addresses. The frontend VM does not need a database firewall rule.
+
+#### B. Private access (recommended for the private two-VM architecture)
+
+Select Private access (VNet Integration). Use the backend VM's virtual network and a dedicated subnet delegated to `Microsoft.DBforPostgreSQL/flexibleServers`. Create/link the private DNS zone to the VNet. The backend VM must be able to resolve the database hostname and reach port 5432. Do not add a public firewall rule in this mode; use the backend VM or a private network connection for database administration.
+
+Click Review + create, then Create. When deployment completes, open the resource and copy the fully qualified server hostname, for example:
+
+```text
+psql-infrapulse-unique.postgres.database.azure.com
+```
+
+### Step 3: Connect from the backend VM
+
+SSH into the backend VM (use the authorized jump host if it has no public IP). Install the client tools:
+
+```bash
+sudo apt update
+sudo apt install -y postgresql-client git ca-certificates
+```
+
+Set your actual hostname and TLS settings:
+
+```bash
+export DB_HOST=psql-infrapulse-unique.postgres.database.azure.com
+export PGSSLMODE=verify-full
+export PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt
+getent hosts "$DB_HOST"
+```
+
+The CA bundle must contain the trusted root certificates for Azure PostgreSQL. Follow Microsoft's TLS guidance if certificate verification fails; do not disable TLS.
+
+```bash
+psql -h "$DB_HOST" -p 5432 -U infraadmin -d postgres
+```
+
+Enter the Azure admin password. A `postgres=>` prompt indicates a successful login.
+
+### Step 4: Create the database and application user
+
+Inside `psql`:
+
+```sql
+CREATE ROLE infrapulse LOGIN;
+```
+
+```text
+\password infrapulse
+```
+
+Enter the new application password twice. Grant the administrator membership in the newly created role if needed for assigning ownership (the application does not receive administrative privileges):
+
+```sql
+GRANT infrapulse TO infraadmin;
+CREATE DATABASE infrapulse OWNER infrapulse;
+```
+
+If your admin username is different, substitute it in the GRANT command. Verify with `\l` and exit using `\q`.
+
+### Step 5: Clone the repository and execute SQL files
+
+On the backend VM:
+
+```bash
+cd ~
+git clone https://github.com/YOUR_USERNAME/infrapulse-database.git
+cd infrapulse-database
+ls -la
+```
+
+Initialize the empty database as the application user:
+
+```bash
+psql -h "$DB_HOST" -p 5432 -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -1 -f init/01-schema.sql
+```
+
+Insert optional demonstration data:
+
+```bash
+psql -h "$DB_HOST" -p 5432 -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -f demo/seed.sql
+```
+
+The first file creates the tables and indexes; the second populates them. Do not run the same schema twice on an initialized database.
+
+### Step 6: Connect via pgAdmin 4 (PaaS, alternative)
+
+If using public access and your workstation IP is allowed, launch pgAdmin 4. Right-click Servers > Register > Server.
+
+| Field | Value |
+|---|---|
+| General > Name | InfraPulse-Azure-PaaS |
+| Host name/address | Your server's `*.postgres.database.azure.com` hostname |
+| Port | `5432` |
+| Maintenance database | `postgres` (admin setup) or `infrapulse` (application login) |
+| Username | `infraadmin` for setup; `infrapulse` for application operations |
+| Password | Corresponding password |
+| SSL mode | Verify-full with trusted root CA configured |
+
+For a basic restricted lab, Require encrypts traffic but does not provide the same server identity verification as Verify-full. Prefer Verify-full. With private access, pgAdmin must run on a client with private connectivity and DNS resolution.
+
+If you prefer pgAdmin rather than `psql` for initialization, create the role and database from an admin connection to `postgres` using the SQL in Step 4 (use the role dialog to set the password; `\password` is a psql-only command). Run CREATE DATABASE as its own statement outside a transaction. Then register/connect as `infrapulse` to the new database and open Query Tool. Open and execute `init/01-schema.sql`, then `demo/seed.sql`. Refresh the table list. Do not repeat initialization if Step 5 already succeeded.
+
+---
+
+## Verifying the setup (both options)
+
+Connect to the `infrapulse` database as the application user using pgAdmin Query Tool or the appropriate `psql` command above.
+
+### Check tables
+
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+ORDER BY table_name;
+```
+
+Expected tables:
+
+| Table | Purpose |
+|---|---|
+| alerts | Resource threshold alerts and recovery timestamps |
+| metrics | CPU, memory and disk percentages over time |
+| servers | Server hostnames and regions |
+
+### Check demonstration data
+
+```sql
+SELECT * FROM servers ORDER BY id;
+SELECT COUNT(*) FROM metrics;
+SELECT * FROM alerts ORDER BY opened_at DESC;
+```
+
+After one successful seed on an empty database, expect three servers, 144 metric records and one open disk alert. Data changes as the collector runs.
+
+### Test a sample insert safely
+
+```sql
+BEGIN;
+INSERT INTO servers (hostname, region)
+VALUES ('test-db-01', 'centralindia')
+ON CONFLICT (hostname) DO NOTHING;
+
+INSERT INTO metrics (server_id, cpu, memory, disk)
+SELECT id, 35.5, 62.0, 48.0
+FROM servers WHERE hostname = 'test-db-01';
+
+SELECT s.hostname, m.cpu, m.memory, m.disk, m.collected_at
+FROM metrics m JOIN servers s ON s.id = m.server_id
+WHERE s.hostname = 'test-db-01'
+ORDER BY m.collected_at DESC;
+ROLLBACK;
+```
+
+The rollback removes the test changes. Alerts are generated by backend ingestion logic, not automatically by raw SQL inserts.
+
+## Backend connection configuration
+
+On the backend VM, clone `infrapulse-query-service` and follow its README. In the repository root:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+nano .env
+```
+
+For IaaS:
+
+```dotenv
+POSTGRES_HOST=10.0.3.4
+POSTGRES_PORT=5432
+POSTGRES_DB=infrapulse
+POSTGRES_USER=infrapulse
+POSTGRES_PASSWORD="YOUR_APPLICATION_PASSWORD"
+PGSSLMODE=require
+```
+
+For Azure PaaS:
+
+```dotenv
+POSTGRES_HOST=psql-infrapulse-unique.postgres.database.azure.com
+POSTGRES_PORT=5432
+POSTGRES_DB=infrapulse
+POSTGRES_USER=infrapulse
+POSTGRES_PASSWORD="YOUR_APPLICATION_PASSWORD"
+PGSSLMODE=verify-full
+PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt
+```
+
+Keep the other existing `.env.example` variables (`INGEST_TOKEN`, `ALERT_THRESHOLD`, `STALE_SECONDS`) and configure a strong ingestion token. Do not use the Azure administrator account for application access. The actual backend reads separate PostgreSQL environment variables and connects using psycopg; it does not require a `DATABASE_URL` variable. TLS variables are handled by libpq. For a production IaaS deployment, configure trusted certificates and use `verify-full` with a matching DNS hostname.
+
+After the backend dependencies are installed and Uvicorn is running, verify:
+
+```bash
+curl http://localhost:8000/health/ready
+curl http://localhost:8000/api/v1/servers
+```
+
+Expected readiness response: `{"status":"ready"}`. Then start the demo or real collector as described in the backend README and deploy the dashboard.
+
+## Troubleshooting
+
+| Error | What to check |
+|---|---|
+| Connection timeout | NSG, Azure firewall, routing and actual outbound IP. |
+| Hostname cannot be resolved | Server name and private DNS zone linkage. |
+| Password authentication failed | Correct application username and password. |
+| SSL certificate verification failed | Trusted CA bundle and exact database hostname. |
+| Permission denied | Database ownership and application role. |
+| Relation already exists | Schema was previously executed; do not rerun blindly. |
+| Relation does not exist | Correct database and successful schema execution. |
+| Dashboard reports offline servers | Start the metrics collector; historical seed data alone does not keep servers online. |
+
+## GitHub publishing and maintenance
+
+If this repository is already cloned on your laptop, replace its README.md with this file and run:
 
 ```bash
 git status
 git add README.md
-git commit -m "Improve English setup documentation"
-git push
+git commit -m "Add PostgreSQL IaaS and Azure PaaS deployment guide"
+git push origin main
 ```
 
-Never commit `.env`, real passwords, tokens, private SSH keys, database dumps, `.venv`, `node_modules` or `dist`. Review the staged file list even when `.gitignore` is present.
+Review staged files before committing. Never publish real credentials, connection secrets, SSH private keys or database backups. Azure resources may incur costs even when VMs are stopped; remove unused practice resources after preserving any data you need.
 
-## Verification and security note
+## Official documentation
 
-The instructions describe the supplied source configuration and expected acceptance results. They are not a claim that a live database, dependency installation or end-to-end browser deployment has been executed. The sample credentials are for a private local lab. Configure authentication, HTTPS and secure secrets before any public deployment. Read API endpoints do not currently require authentication.
+- [Create an Azure PostgreSQL Flexible Server](https://learn.microsoft.com/azure/postgresql/flexible-server/quickstart-create-server-portal)
+- [Azure PostgreSQL firewall rules](https://learn.microsoft.com/en-us/azure/postgresql/security/security-firewall-rules)
+- [Private networking](https://learn.microsoft.com/azure/postgresql/network/concepts-networking-private)
+
+## Verification note
+
+The file names, table definitions, seed counts and backend configuration variables in this guide were reviewed against the InfraPulse source code. Live Azure provisioning and database integration have not been executed as part of this documentation update. Expected outputs are acceptance checks, not recorded deployment results.
