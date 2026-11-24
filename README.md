@@ -1,28 +1,28 @@
-# InfraPulse Database — Beginner Step-by-Step Guide (Hindi / Hinglish)
+# InfraPulse Database — Complete Beginner Setup Guide
 
-**Start here: Repository 1 of 3.** PostgreSQL ek database server hai; SQL usse baat karne ki language hai. Is repo ko Python ya npm se run nahi karna. PostgreSQL service start karke SQL files execute karni hain.
+**Repository 1 of 3 | Start here**
 
-## Project ko samjhein (zero se)
+PostgreSQL is the database server; SQL is the language used to communicate with it. This repository contains SQL scripts rather than a standalone Python or Node.js application. Start PostgreSQL and execute the scripts using its command-line client, `psql`.
 
-InfraPulse ek server monitoring application hai. Database data rakhta hai, backend data padhta/likhta hai aur frontend browser mein data dikhata hai. Agent CPU (processor ka usage), RAM (memory ka usage) aur disk (storage ka usage) bhejta hai.
+## Project overview and execution order
+
+InfraPulse is a three-tier infrastructure monitoring application. The collector sends CPU, memory (RAM), and disk usage measurements to the FastAPI backend. PostgreSQL stores those measurements and the React dashboard displays them.
 
 ```text
-Agent --> FastAPI --> PostgreSQL
+Collector --> FastAPI --> PostgreSQL
 Browser --> React/Vite --> FastAPI --> PostgreSQL
 ```
 
-| Order | Repository | Port | Kaam |
+| Order | Component | Port | Purpose |
 |---|---|---|---|
-| 1 | infrapulse-database | 5432 | Data store |
-| 2 | infrapulse-query-service | 8000 | API |
-| 3 | infrapulse-query-service (agent) | No listening port | Metrics send |
-| 4 | infrapulse-dashboard | 5173 | Browser UI |
+| 1 | infrapulse-database | 5432 | Persistent data storage |
+| 2 | infrapulse-query-service | 8000 | REST API |
+| 3 | infrapulse-query-service agent | None | Sends measurements |
+| 4 | infrapulse-dashboard | 5173 | Browser interface |
 
-**Important:** Ye guide Ubuntu 24.04 / Ubuntu WSL ke Bash terminal ko main environment maanti hai. Windows native instructions bhi niche hain. WSL use kar rahe hain to database, Python aur Node sab WSL ke andar install karein; Windows aur WSL ke commands mix na karein. Internet initial software installation ke liye chahiye. `localhost` ka matlab apna computer hai. Port ek service ka numbered connection point hai. Command blocks mein sirf commands copy karein, output ya prompt nahi. Ek command successful hone ke baad agli command chalayein.
+Use Ubuntu 24.04 or Ubuntu under WSL for the Bash commands in this guide. Native Windows alternatives are included where needed. Install all components in the same environment; do not mix native Windows and WSL installations. `localhost` refers to your own machine, and a port is a numbered network connection point. Run commands one at a time, checking the output before proceeding. Do not copy the terminal prompt or expected output.
 
-### Folder setup
-
-Teeno ZIP files ek hi `InfraPulse` folder mein extract karein. Ubuntu/WSL mein is guide ka assumed path `~/InfraPulse` hai. `~` aapka home folder hai. Agar ZIP Downloads mein hain, unhe file manager se home ke InfraPulse folder mein extract kar sakte hain. WSL mein `explorer.exe .` se current Linux folder Windows Explorer mein khulta hai.
+## Prepare your project folder
 
 ```bash
 mkdir -p ~/InfraPulse
@@ -31,7 +31,7 @@ pwd
 ls -a
 ```
 
-`mkdir -p` folder banata hai (already ho to error nahi), `cd` folder badalta hai, `pwd` current path aur `ls -a` hidden files samet contents dikhata hai. Extract ke baad structure aisa ho:
+`mkdir -p` creates a directory if needed; `cd` changes directories; `pwd` prints the current location; `ls -a` lists files including hidden files. Extract the three source archives here, or clone your three populated GitHub repositories here. The final layout must be:
 
 ```text
 InfraPulse/
@@ -40,11 +40,9 @@ InfraPulse/
   infrapulse-dashboard/
 ```
 
-Windows native mein `C:\Users\YOUR_NAME\InfraPulse` ke badle PowerShell mein `$HOME\InfraPulse` use karein. ZIP ko Extract All se isi folder mein extract karein. Double nested folders na banayein.
+Avoid double-nested directories. On native Windows, use `$HOME\InfraPulse` in PowerShell and Extract All in File Explorer. In WSL, `explorer.exe .` opens the current Linux directory in Windows Explorer.
 
-## 1. PostgreSQL install karein (Terminal 1)
-
-Ubuntu/WSL:
+## 1. Install PostgreSQL (Terminal 1)
 
 ```bash
 sudo apt update
@@ -55,26 +53,24 @@ sudo service postgresql status
 pg_isready -h localhost -p 5432
 ```
 
-`sudo` administrator permission deta hai; password type karte waqt characters nahi dikhte, normal hai. `apt update` package list update karta hai, `apt install` software install karta hai, `-y` confirmation accept karta hai. `psql` database client hai. `service ... start` database process start karta hai; `status` status dikhata hai (agar pager khule to `q`). `pg_isready` ka expected output `accepting connections` hai. WSL restart ke baad service dobara start karni pad sakti hai.
+`sudo` runs a command with administrator permissions. Password characters are hidden while typing. `apt update` refreshes package lists; `apt install` installs software; `-y` accepts confirmation. `psql` is the SQL client. `service` starts or checks PostgreSQL. If a status pager opens, press `q`. Expect `accepting connections` from `pg_isready`.
 
-Windows native: https://www.postgresql.org/download/windows/ se PostgreSQL 14+ installer lein. Server aur command line tools install karein, postgres administrator password yaad rakhein, port 5432 rakhein. SQL Shell (psql) Start Menu se kholein. Server localhost, database postgres, port 5432, username postgres select karein; installer password enter karein. PowerShell mein psql not recognized ho to PostgreSQL installation ke `bin` folder ko PATH mein add karein aur naya terminal kholein. Services app se PostgreSQL service Running check karein.
+**Native Windows:** Install PostgreSQL 14 or later from https://www.postgresql.org/download/windows/. Include the server and command-line tools, remember the administrator password, and keep port 5432. Open SQL Shell (psql), select localhost, database postgres, port 5432, username postgres and enter the administrator password. If PowerShell cannot find psql, add the installation's `bin` directory to PATH and open a new terminal. Check the PostgreSQL service in the Windows Services application.
 
-## 2. Application user aur database banayein (sirf ek baar)
-
-Ubuntu terminal:
+## 2. Create the application role and database (once only)
 
 ```bash
 sudo -u postgres psql
 ```
 
-Ab `postgres=#` prompt SQL shell ka hai, Bash nahi. Ye do SQL commands alag alag execute karein (semicolon zaroori):
+The `postgres=#` prompt means you are inside the SQL shell, not Bash. Enter these SQL statements separately, including their semicolons:
 
 ```sql
 CREATE ROLE infrapulse LOGIN PASSWORD 'local-dev-password-change-me';
 CREATE DATABASE infrapulse OWNER infrapulse;
 ```
 
-Expected output `CREATE ROLE` aur `CREATE DATABASE`. Role application ka login hai; OWNER ka matlab is user ko database ka ownership milta hai. Ye password sirf local practice example hai. Agar change karte hain to backend ki `.env` mein same password rakhein. Windows SQL Shell mein bhi same SQL chalegi.
+Expected messages: `CREATE ROLE` and `CREATE DATABASE`. The role is the application's login; `OWNER` grants ownership of the new database. Use the same password in the backend `.env` file. The example password is for local practice only. Windows SQL Shell accepts the same statements.
 
 ```sql
 \du
@@ -82,11 +78,9 @@ Expected output `CREATE ROLE` aur `CREATE DATABASE`. Role application ka login h
 \q
 ```
 
-`\du` roles, `\l` databases list karta hai, `\q` SQL shell se exit. Already exists error aaye to pehle existing user/database verify karein, delete na karein. Password reset zaroori ho to administrator SQL shell mein `ALTER ROLE infrapulse PASSWORD 'local-dev-password-change-me';` use karein.
+These commands list roles, list databases and exit the SQL shell, respectively. If the role or database already exists, inspect it rather than deleting it. To reset the lab role password if necessary, run `ALTER ROLE infrapulse PASSWORD 'local-dev-password-change-me';` in the administrator SQL shell.
 
-## 3. Schema file execute karein
-
-Ubuntu Bash:
+## 3. Execute the database schema
 
 ```bash
 cd ~/InfraPulse/infrapulse-database
@@ -94,23 +88,35 @@ ls -a
 psql -h localhost -p 5432 -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -1 -f init/01-schema.sql
 ```
 
-Windows PowerShell mein `cd "$HOME\InfraPulse\infrapulse-database"` use karein; baaki psql command same hai. Application password enter karein (postgres admin password nahi). Flags ka meaning: `-h` host, `-p` port, `-U` user, `-d` database, `-v ON_ERROR_STOP=1` error par stop, `-1` poori schema transaction, `-f` SQL file read. Expected `CREATE TABLE` aur `CREATE INDEX` messages. Schema **sirf ek baar** execute karein; relation already exists ka matlab pehle se table ho sakti hai.
+Enter the application role password, not the postgres administrator password. On Windows PowerShell, use `cd "$HOME\InfraPulse\infrapulse-database"` first; the psql command is unchanged.
 
-## 4. Demo data insert karein
+| Option | Meaning |
+|---|---|
+| -h | Database host |
+| -p | Port |
+| -U | Login role |
+| -d | Database name |
+| -v ON_ERROR_STOP=1 | Stop when an SQL error occurs |
+| -1 | Execute the script in a single transaction |
+| -f | Read the specified SQL file |
+
+Expect CREATE TABLE and CREATE INDEX messages. Execute the schema only once for a new database.
+
+## 4. Insert sample data
 
 ```bash
 psql -h localhost -p 5432 -U infrapulse -d infrapulse -v ON_ERROR_STOP=1 -f demo/seed.sql
 ```
 
-Seed file apni transaction khud chalati hai. Ismein 3 fake servers aur har server ke 48 historical samples hain. Fresh database par total 144 samples expected hain. Re-run se extra metrics insert ho sakte hain; repeated seed zaroori nahi. Demo server names real cloud resources nahi hain. Data 120 seconds se purana hone par server offline dikhega; live demo agent baad mein start karenge.
+The seed script manages its own transaction and inserts three simulated servers, 48 historical measurements per server (144 measurements on a fresh database), and a disk alert. Re-running it can add duplicate historical measurements. These server names and region labels are simulated, not actual cloud resources. After 120 seconds without a new measurement, servers may appear offline; the demo collector will keep them updated later.
 
-## 5. Verify karein ki data sach mein store hua
+## 5. Verify the database
 
 ```bash
 psql -h localhost -p 5432 -U infrapulse -d infrapulse
 ```
 
-Ab SQL prompt `infrapulse=>` par:
+At the `infrapulse=>` SQL prompt, run:
 
 ```sql
 \dt
@@ -121,61 +127,113 @@ SELECT hostname, cpu, memory, disk, collected_at FROM servers JOIN metrics ON se
 \q
 ```
 
-`\dt` tables list karta hai; `SELECT` data padhta hai; `count(*)` rows count karta hai; `JOIN` server ID se metrics jodta hai; `ORDER BY ... DESC` newest first; `LIMIT 5` sirf 5 results. Expected servers: demo-web-01, demo-api-01, demo-db-01. Disk alert demo-db-01 ke liye expected hai. Agar SQL output pager mein ho to `q` press karein.
+`\dt` lists tables; SELECT reads data; count(*) counts rows; JOIN connects server records to measurements; ORDER BY DESC sorts newest first; LIMIT restricts the result. Expect three tables, three demo servers (demo-web-01, demo-api-01, demo-db-01), 144 measurements on a fresh seed, and a disk alert for demo-db-01. Press `q` to leave a result pager if needed.
 
-## 6. Har file ka kaam
+## 6. Repository structure and database design
 
-| File | Kaam |
+```text
+infrapulse-database/
+├── init/01-schema.sql
+├── demo/seed.sql
+├── .gitignore
+├── LICENSE
+└── README.md
+```
+
+| File | Purpose |
 |---|---|
-| init/01-schema.sql | servers, metrics, alerts tables aur indexes banata hai |
-| demo/seed.sql | Sample server data aur alert insert karta hai |
-| .gitignore | Secrets aur local files Git se exclude karta hai |
-| LICENSE | Code reuse ki license terms |
-| README.md | Ye setup guide |
+| init/01-schema.sql | Creates tables, constraints and indexes |
+| demo/seed.sql | Inserts demonstration servers, measurements and an alert |
+| .gitignore | Excludes local files from Git |
+| LICENSE | License terms |
+| README.md | Setup and usage instructions |
 
-`servers.id` primary key unique identity hai. `metrics.server_id` aur `alerts.server_id` foreign keys hain jo server se link karti hain. CHECK constraints CPU/RAM/disk ko 0–100 tak restrict karte hain. Index latest metrics search fast karta hai; partial unique index ek resource ke liye ek hi active alert allow karta hai. `resolved_at` null hai to alert active hai.
+| Table | Purpose | Key fields |
+|---|---|---|
+| servers | Server inventory | id, hostname, region, created_at |
+| metrics | Historical measurements | server_id, collected_at, cpu, memory, disk |
+| alerts | Resource threshold events | server_id, metric, value, opened_at, resolved_at |
 
-## 7. Common errors
+Primary keys uniquely identify rows. Foreign keys connect metrics and alerts to the server record. CHECK constraints restrict utilization to 0–100. The server/time index accelerates recent measurement queries. A partial unique index permits only one unresolved alert per server and resource. A null resolved_at means the alert is active. Deleting a server also deletes its associated measurements and alerts through cascading foreign keys; avoid accidental deletes.
 
-| Error | Kya karein |
+## 7. Troubleshooting
+
+| Error | Action |
 |---|---|
-| psql command not found | PostgreSQL client install/PATH check |
-| Connection refused | service start karein, pg_isready run karein |
-| Password authentication failed | Application role/password check karein |
-| Database does not exist | Step 2 verify karein |
-| No such file | pwd aur ls se current folder check karein |
-| Relation already exists | Schema already initialized ho sakta hai; step 5 verify karein |
+| psql command not found | Install the PostgreSQL client or check PATH |
+| Connection refused | Start PostgreSQL and run pg_isready |
+| Password authentication failed | Verify the application role and password |
+| Database does not exist | Verify Step 2 |
+| No such file | Check pwd and ls -a |
+| Relation already exists | Schema may already be initialized; verify Step 5 |
 
-## 8. Backup (optional, advanced reset nahi)
+## 8. Optional backup
 
 ```bash
 pg_dump -h localhost -U infrapulse -d infrapulse -Fc -f infrapulse.dump
 pg_restore -l infrapulse.dump
 ```
 
-`pg_dump` backup banata hai, `-Fc` custom format, `pg_restore -l` backup contents dikhata hai. Restore ko safer empty database mein karein; existing database par `--clean` objects delete/replace karta hai, beginner setup mein use na karein. Backup GitHub par upload na karein.
+The first command creates a custom-format backup; the second lists its contents. Restore into a separate empty database when practicing. Do not use destructive restore options against a working database. Never publish backups to GitHub.
 
-## 9. Next repository
+## 9. Next step
 
-PostgreSQL running rakhein. Database terminal band kar sakte hain, service background mein chalti hai. Ab `~/InfraPulse/infrapulse-query-service/README.md` open karein. Backend tabhi start karein jab tables aur seed verification pass ho.
+Leave PostgreSQL running in the background and open `infrapulse-query-service/README.md`. Do not start the backend until the database checks succeed. After restarting your computer, start the PostgreSQL service again; database creation and seeding do not need to be repeated.
 
-## GitHub par upload (application chalane ke liye optional)
+## Publish this repository to GitHub using Git clone (optional)
 
-Ubuntu par `sudo apt install -y git` se Git install karein. Windows par https://git-scm.com/downloads se Git install karein. `git --version` se verify karein. GitHub.com par New repository banayein, is repo ke exact naam se. README/license initialize na karein. Public karne se pehle secrets check karein.
+These instructions are for publishing the supplied source code to your own GitHub account, not for running the application. Publish each repository separately.
+
+1. Install Git (`sudo apt install -y git` on Ubuntu, or https://git-scm.com/downloads on Windows). Verify with `git --version`.
+2. Open https://github.com/new and create an empty repository named `infrapulse-database`. Do not initialize it with a README, license or .gitignore. Choose public or private visibility as appropriate.
+3. Configure your Git identity once, using your own name and email.
 
 ```bash
 git config --global user.name "Your Name"
 git config --global user.email "your-email@example.com"
-git init -b main
+```
+
+4. Clone into a separate publishing directory so that it does not conflict with your extracted source folder. Replace `YOUR_USERNAME` with your GitHub username.
+
+```bash
+mkdir -p ~/InfraPulse-publish
+cd ~/InfraPulse-publish
+git clone https://github.com/YOUR_USERNAME/infrapulse-database.git
+cd infrapulse-database
+```
+
+An empty-repository warning is normal for a newly created repository. Copy the contents of the supplied source directory into this cloned directory, including hidden files such as `.gitignore` and `.env.example` where present. Do not replace the cloned `.git` directory. Do not copy actual secrets, database dumps, virtual environments, dependencies or build output.
+
+5. Check the files and the destination repository before staging and committing.
+
+```bash
+git remote -v
+git status
 git add .
 git status --short
+```
+
+`git clone` automatically configures the remote named `origin`; no `git init` or `git remote add` is necessary. `git add` stages files; `git status` lets you review them. Remove any staged secrets before committing.
+
+```bash
 git commit -m "Initial InfraPulse project"
-git remote add origin https://github.com/YOUR_USERNAME/infrapulse-database.git
+git branch -M main
 git push -u origin main
 ```
 
-In commands ko **isi repository ke root folder mein** chalayein. `YOUR_USERNAME` apna GitHub username aur `REPO_NAME` is repository ka naam rakhein. `git init` local repo banata hai, `add` files stage karta hai, `status` review karata hai, `commit` snapshot banata hai, `remote` GitHub URL jodta hai, `push` upload karta hai. HTTPS authentication ke liye Git Credential Manager/browser login ya GitHub token use karein, account password nahi. `.env`, database dumps, `.venv`, `node_modules` aur `dist` upload nahi karne hain; `.gitignore` inhe exclude karta hai. `git status` mein secret dikhe to commit se pehle hata dein. Existing remote ho to `git remote -v` check karein; dobara init/push blindly na karein.
+`git commit` records a snapshot, `git branch -M main` names the branch, and `git push` uploads the commit and sets the upstream branch. Authenticate using the browser/Git Credential Manager or a GitHub token, not your account password. Refresh the GitHub repository page and confirm the source files and README are present.
 
-## Verification note
+For an existing cloned repository, replace its README.md and run only:
 
-Commands source configuration ke against review kiye gaye hain. Live database, dependency installation aur browser end-to-end test is packaging environment mein execute nahi hua. Neeche/uper diye expected results acceptance checks hain, actual test results nahi. Local lab credentials examples hain; public access se pehle authentication, HTTPS aur secure secrets configure karein.
+```bash
+git status
+git add README.md
+git commit -m "Improve English setup documentation"
+git push
+```
+
+Never commit `.env`, real passwords, tokens, private SSH keys, database dumps, `.venv`, `node_modules` or `dist`. Review the staged file list even when `.gitignore` is present.
+
+## Verification and security note
+
+The instructions describe the supplied source configuration and expected acceptance results. They are not a claim that a live database, dependency installation or end-to-end browser deployment has been executed. The sample credentials are for a private local lab. Configure authentication, HTTPS and secure secrets before any public deployment. Read API endpoints do not currently require authentication.
